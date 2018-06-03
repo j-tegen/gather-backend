@@ -1,0 +1,5 @@
+venv/
+frontend-project/
+migrations/
+__pycache__/
+*.pyc
