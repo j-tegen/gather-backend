@@ -20,7 +20,7 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = ''
+SECRET_KEY = os.getenv('GATHER_SECRET','')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -137,4 +137,4 @@ AUTHENTICATION_BACKENDS = [
 
 CORS_ORIGIN_ALLOW_ALL = True
 
-GOOGLE_MAPS_API_KEY = 'AIzaSyD8RLSEh4UeUr06ww1PRJpjUH3rSphkPt4'
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_KEY', '')
