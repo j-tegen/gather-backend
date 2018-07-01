@@ -61,7 +61,6 @@ def update_location(location_data):
     location.latitude=lat
     location.longitude=lng
     location.save()
-    get_lat_long(location_data.country, location_data.city, location_data.street)
     return location
 
 def get_lat_long(country, city, street):

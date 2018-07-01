@@ -5,7 +5,7 @@ from graphql import GraphQLError
 from .models import Event, Location, Participant, Profile, Tag, Post
 from users.schema import UserType
 from django.db.models import Q, Count
-from .utilities import queryset_skip_next, set_tags, update_location
+from .utilities import queryset_skip_next, set_tags, update_location, get_lat_long
 from .enums import ParticipantStatus
 
 
@@ -167,14 +167,19 @@ class CreateEvent(graphene.Mutation):
 
         location = Location()
         if location_data.id:
-            location = Location.objects.get(pk=location_data.id)
+            location = update_location(location_data)
         else:
+            (lat, lng) = get_lat_long(
+                country=location_data.country,
+                city=location_data.city,
+                street=location_data.street
+            )
             location = Location(
                 city=location_data.city,
                 country=location_data.country,
                 street=location_data.street,
-                longitude=location_data.longitude,
-                latitude=location_data.latitude,
+                latitude=lat,
+                longitude=lng,
             )
             location.save()
 
@@ -222,6 +227,27 @@ class UpdateEvent(graphene.Mutation):
         return UpdateEvent(event=event)
 
 
+class DeleteEvent(graphene.Mutation):
+    id = graphene.Int()
+
+    class Arguments:
+        id = graphene.Int(required=True)
+
+    def mutate(self, info, id):
+        user = info.context.user or None
+
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in!')
+        event = Event.objects.get(pk=id)
+
+        if user.id != event.organizer.id:
+            raise GraphQLError('You can only delete your own events!')
+
+        event.delete()
+        return DeleteEvent(id=id)
+
+
+
 class CreateTag(graphene.Mutation):
     tag = graphene.Field(TagType)
 
@@ -248,6 +274,7 @@ class CreateTag(graphene.Mutation):
 class Mutation(graphene.ObjectType):
     create_event = CreateEvent.Field()
     update_event = UpdateEvent.Field()
+    delete_event = DeleteEvent.Field()
     create_participant = CreateParticipant.Field()
     update_participant = UpdateParticipant.Field()
     create_tag = CreateTag.Field()
