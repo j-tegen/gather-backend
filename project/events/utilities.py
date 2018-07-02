@@ -47,27 +47,39 @@ def set_tags(parent, tags):
         parent.tags.remove(tag)
 
 
-def update_location(location_data):
-    location = Location.objects.get(pk=location_data.id)
-    location.city=location_data.city
-    location.country=location_data.country
-    location.street=location_data.street
+def add_or_update_location(location_data):
+    location = Location()
 
-    (lat, lng) = get_lat_long(
+    (lat, lng, g_id) = get_google_geo_info(
         country=location_data.country,
         city=location_data.city,
         street=location_data.street
     )
+
+    if not g_id:
+        return None
+
+    if location_data.id:
+        location = Location.objects.get(pk=location_data.id)
+    elif g_id:
+        location = Location.objects.filter(
+            google_id=g_id).first()
+
+    location.city=location_data.city
+    location.country=location_data.country
+    location.street=location_data.street
+
     location.latitude=lat
     location.longitude=lng
+    location.google_id = g_id
     location.save()
     return location
 
-def get_lat_long(country, city, street):
+def get_google_geo_info(country, city, street):
     address = "{}, {}, {}".format(street, city, country)
     response = requests.get(
-        'https://maps.googleapis.com/maps/api/geocode/json?address={0}&key={1}'.format(address, GOOGLE_MAPS_API_KEY))
-    location = response.json()['results'][0]['geometry']['location']
+        'https://maps.googleapis.com/maps/api/geocode/json?address={0}&key={1}'.format(
+            address, GOOGLE_MAPS_API_KEY)).json()['results'][0]
+    location = response['geometry']['location']
 
-    return (location['lat'], location['lng'])
-
+    return (location['lat'], location['lng'], response['place_id'])

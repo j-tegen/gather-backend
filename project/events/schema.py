@@ -5,7 +5,7 @@ from graphql import GraphQLError
 from .models import Event, Location, Participant, Profile, Tag, Post
 from users.schema import UserType
 from django.db.models import Q, Count
-from .utilities import queryset_skip_next, set_tags, update_location, get_lat_long
+from .utilities import queryset_skip_next, set_tags, add_or_update_location, get_google_geo_info
 from .enums import ParticipantStatus
 
 
@@ -55,6 +55,7 @@ class EventInput(graphene.InputObjectType):
 
 class LocationInput(graphene.InputObjectType):
     id = graphene.Int()
+    google_id = graphene.String(required=False)
     city = graphene.String(required=True)
     country = graphene.String(required=True)
     street = graphene.String()
@@ -135,7 +136,7 @@ class UpdateParticipant(graphene.Mutation):
         return UpdateParticipant(participant=participant)
 
 
-class UpdateLocation(graphene.Mutation):
+class AddOrUpdateLocation(graphene.Mutation):
     location = graphene.Field(LocationType)
 
     class Arguments:
@@ -144,11 +145,13 @@ class UpdateLocation(graphene.Mutation):
     def mutate(self, info, location_data):
         user = info.context.user or None
 
-        if user.is_anonymous:
-            raise GraphQLError('User not logged in!')
+        # if user.is_anonymous:
+        #     raise GraphQLError('User not logged in!')
 
-        location = update_location(location_data)
-        return UpdateLocation(location=location)
+
+
+        location = add_or_update_location(location_data)
+        return AddOrUpdateLocation(location=location)
 
 
 class CreateEvent(graphene.Mutation):
@@ -165,23 +168,10 @@ class CreateEvent(graphene.Mutation):
         if user.is_anonymous:
             raise GraphQLError('User not logged in!')
 
-        location = Location()
-        if location_data.id:
-            location = update_location(location_data)
-        else:
-            (lat, lng) = get_lat_long(
-                country=location_data.country,
-                city=location_data.city,
-                street=location_data.street
-            )
-            location = Location(
-                city=location_data.city,
-                country=location_data.country,
-                street=location_data.street,
-                latitude=lat,
-                longitude=lng,
-            )
-            location.save()
+        location = add_or_update_location(location_data)
+
+        if not location:
+            raise GraphQLError('Location is not valid!')
 
         event = Event(
             title=event_data.title,
@@ -279,7 +269,7 @@ class Mutation(graphene.ObjectType):
     update_participant = UpdateParticipant.Field()
     create_tag = CreateTag.Field()
     create_post = CreatePost.Field()
-    update_location = UpdateLocation.Field()
+    add_or_update_location = AddOrUpdateLocation.Field()
 
 
 class Query(graphene.ObjectType):
