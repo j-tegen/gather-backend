@@ -50,7 +50,7 @@ def set_tags(parent, tags):
 def add_or_update_location(location_data):
     location = Location()
 
-    (lat, lng, g_id) = get_google_geo_info(
+    (lat, lng, g_id, formatted_address) = get_google_geo_info(
         country=location_data.country,
         city=location_data.city,
         street=location_data.street
@@ -72,6 +72,7 @@ def add_or_update_location(location_data):
     location.latitude=lat
     location.longitude=lng
     location.google_id = g_id
+    location.google_formatted_address = formatted_address
     location.save()
     return location
 
@@ -82,4 +83,4 @@ def get_google_geo_info(country, city, street):
             address, GOOGLE_MAPS_API_KEY)).json()['results'][0]
     location = response['geometry']['location']
 
-    return (location['lat'], location['lng'], response['place_id'])
+    return (location['lat'], location['lng'], response['place_id'], response['formatted_address'])
