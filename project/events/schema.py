@@ -40,6 +40,11 @@ class PostType(DjangoObjectType):
         model = Post
 
 
+class TagInput(graphene.InputObjectType):
+    id = graphene.Int()
+    text = graphene.String(required=True)
+
+
 class EventInput(graphene.InputObjectType):
     id = graphene.ID()
     title = graphene.String(required=True)
@@ -50,7 +55,8 @@ class EventInput(graphene.InputObjectType):
     end_time = graphene.types.datetime.Time()
     max_participants = graphene.Int()
     min_participants = graphene.Int()
-    event_type = graphene.String(required=True)
+    event_type = graphene.String()
+    tags = graphene.List(TagInput)
 
 
 class LocationInput(graphene.InputObjectType):
@@ -59,11 +65,6 @@ class LocationInput(graphene.InputObjectType):
     city = graphene.String(required=True)
     country = graphene.String(required=True)
     street = graphene.String()
-
-
-class TagInput(graphene.InputObjectType):
-    id = graphene.Int()
-    text = graphene.String(required=True)
 
 
 class CreatePost(graphene.Mutation):
@@ -89,6 +90,33 @@ class CreatePost(graphene.Mutation):
         )
         post.save()
         return CreatePost(post=post)
+
+
+class InviteParticipant(graphene.Mutation):
+    participant = graphene.Field(ParticipantType)
+
+    class Arguments:
+        id_event = graphene.Int(required=True)
+        id_user = graphene.Int(required=True)
+        status = ParticipantStatus(required=True)
+
+    def mutate(self, info, id_event, id_user, status):
+        user = info.context.user or None
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in!')
+
+        invited_user = User.objects.get(pk=id_user)
+        event = Event.Objects.get(pk=id_event)
+
+        participant = Participant(
+            user=invited_user,
+            event=event,
+            status=status,
+        )
+        participant.save()
+
+        return InviteParticipant(participant=participant)
+
 
 
 class CreateParticipant(graphene.Mutation):
@@ -136,6 +164,7 @@ class UpdateParticipant(graphene.Mutation):
         return UpdateParticipant(participant=participant)
 
 
+
 class AddOrUpdateLocation(graphene.Mutation):
     location = graphene.Field(LocationType)
 
@@ -145,8 +174,8 @@ class AddOrUpdateLocation(graphene.Mutation):
     def mutate(self, info, location_data):
         user = info.context.user or None
 
-        # if user.is_anonymous:
-        #     raise GraphQLError('User not logged in!')
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in!')
 
 
 
@@ -186,6 +215,14 @@ class CreateEvent(graphene.Mutation):
             max_participants=event_data.max_participants,
         )
         event.save()
+
+        participant = Participant(
+            user=user,
+            event=event,
+            status='GOING',
+        )
+        participant.save()
+
         return CreateEvent(event=event)
 
 
@@ -267,6 +304,7 @@ class Mutation(graphene.ObjectType):
     delete_event = DeleteEvent.Field()
     create_participant = CreateParticipant.Field()
     update_participant = UpdateParticipant.Field()
+    invite_participant = InviteParticipant.Field()
     create_tag = CreateTag.Field()
     create_post = CreatePost.Field()
     add_or_update_location = AddOrUpdateLocation.Field()
@@ -288,22 +326,26 @@ class Query(graphene.ObjectType):
         skip=graphene.Int(),
     )
 
-    event_participants = graphene.List(
-        ParticipantType,
-        id_event=graphene.Int()
-    )
-
-    event_posts = graphene.List(
-        PostType,
-        id_event=graphene.Int()
-    )
-
     tags = graphene.List(
         TagType,
         search=graphene.String(),
         first=graphene.Int(),
         skip=graphene.Int(),
     )
+
+    locations = graphene.List(
+        LocationType
+    )
+
+    my_locations = graphene.List(
+        LocationType
+    )
+
+    participant = graphene.Field(ParticipantType)
+
+    participants = graphene.List(ParticipantType)
+
+    my_location = graphene.Field(LocationType, id=graphene.Int())
 
     my_organized_events = graphene.List(EventType)
 
@@ -319,14 +361,39 @@ class Query(graphene.ObjectType):
         qs = qs.annotate(num_events=Count('events')).order_by('-num_events')
         return queryset_skip_next(qs=qs, first=first, skip=skip)
 
-    def resolve_event_participants(self, info, id_event, **kwargs):
-        return Participant.objects.filter(event=id_event)
-
-    def resolve_event_posts(self, info , id_event, **kwargs):
-        return Post.objects.filter(event=id_event)
-
     def resolve_event(self, info, id, **kwargs):
         return Event.objects.get(pk=id)
+
+    def resolve_participant(self, info, id, **kwargs):
+        return Participant.objects.get(pk=id)
+
+    def resolve_participants(self, info, **kwargs):
+        return Participant.objects.all()
+
+    def resolve_locations(self, info, **kwargs):
+        user = info.context.user or None
+
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in')
+
+        return Location.objects.all()
+
+    def resolve_my_location(self, info, **kwargs):
+        user = info.context.user or None
+
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in')
+
+        return user.profile.location
+
+    def resolve_my_locations(self, info, **kwargs):
+        user = info.context.user or None
+
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in')
+
+        event_locations = Location.objects.filter(Q(events__organizer__id=user.id) | Q(id=user.profile.location.id)).distinct()
+        return event_locations
 
     def resolve_my_organized_events(self, info):
         user = info.context.user or None
@@ -365,3 +432,5 @@ class Query(graphene.ObjectType):
         qs = qs.filter(filter)
 
         return queryset_skip_next(qs=qs, first=first, skip=skip)
+
+

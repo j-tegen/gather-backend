@@ -65,6 +65,9 @@ def add_or_update_location(location_data):
         location = Location.objects.filter(
             google_id=g_id).first()
 
+    if not location:
+        location = Location()
+
     location.city=location_data.city
     location.country=location_data.country
     location.street=location_data.street

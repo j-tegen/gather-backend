@@ -1,8 +1,14 @@
 from django.db import models
 from django.conf import settings
 
+class BaseModel(models.Model):
+    created_time = models.DateTimeField(auto_now_add=True)
+    timestamp = models.DateTimeField(auto_now=True)
 
-class Event(models.Model):
+    class Meta:
+        abstract = True
+
+class Event(BaseModel):
     title = models.CharField(max_length=100, blank=False)
     description = models.TextField(blank=True)
     start_date = models.DateField()
@@ -22,7 +28,7 @@ class Event(models.Model):
     event_type = models.CharField(max_length=100)
 
 
-class Participant(models.Model):
+class Participant(BaseModel):
     class Meta:
         unique_together = (("user", "event"),)
     user = models.ForeignKey(
@@ -38,11 +44,24 @@ class Participant(models.Model):
         choices=(
             ("INTERESTED", "Interested"),
             ("GOING", "Going"),
-            ("NOTGOING", "Not going")),
+            ("NOTGOING", "Not going"),
+            ("INVITED", "Invited")),
             default="INTERESTED")
 
 
-class Profile(models.Model):
+class Friendship(BaseModel):
+    status = models.CharField(
+        max_length=20,
+        choices=(
+            ("PENDING", "Pedning"),
+            ("FRIENDS", "Friends"),
+        ), default="FRIENDS"
+    )
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, blank=True)
+    profiles = models.ManyToManyField('Profile', blank=True)
+
+
+class Profile(BaseModel):
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE)
@@ -64,9 +83,14 @@ class Profile(models.Model):
             ("NOANSWER", "")
         ),
         default="NOANSWER")
+    friends = models.ManyToManyField('Friendship', through=Friendship.profiles.through, blank=True)
+
+    @property
+    def full_name(self):
+        return "{} {}".format(self.first_name, self.last_name)
 
 
-class Location(models.Model):
+class Location(BaseModel):
     city = models.CharField(max_length=100, blank=False)
     country = models.CharField(max_length=100, blank=False)
     street = models.CharField(max_length=100, blank=True)
@@ -76,15 +100,14 @@ class Location(models.Model):
     latitude = models.DecimalField(max_digits=9, decimal_places=6)
 
 
-class Tag(models.Model):
+class Tag(BaseModel):
     text = models.CharField(max_length=20, blank=False)
     events = models.ManyToManyField('events.Event', related_name='tags')
 
 
-class Post(models.Model):
+class Post(BaseModel):
     title = models.CharField(max_length=50)
     body = models.TextField(max_length=1000, blank=False)
     event = models.ForeignKey('events.Event', related_name='posts', on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE)
-    timestamp = models.DateTimeField(auto_now=True)
