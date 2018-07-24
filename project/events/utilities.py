@@ -59,11 +59,8 @@ def add_or_update_location(location_data):
     if not g_id:
         return None
 
-    if location_data.id:
-        location = Location.objects.get(pk=location_data.id)
-    elif g_id:
-        location = Location.objects.filter(
-            google_id=g_id).first()
+    location = Location.objects.filter(
+        google_id=g_id).first()
 
     if not location:
         location = Location()
@@ -83,7 +80,13 @@ def get_google_geo_info(country, city, street):
     address = "{}, {}, {}".format(street, city, country)
     response = requests.get(
         'https://maps.googleapis.com/maps/api/geocode/json?address={0}&key={1}'.format(
-            address, GOOGLE_MAPS_API_KEY)).json()['results'][0]
+            address, GOOGLE_MAPS_API_KEY)).json()['results']
+
+    if len(response) == 0:
+        return (None, None, None, None)
+
+
+    response = response[0]
     location = response['geometry']['location']
 
     return (location['lat'], location['lng'], response['place_id'], response['formatted_address'])

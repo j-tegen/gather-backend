@@ -69,7 +69,7 @@ class Register(graphene.Mutation):
 
     def mutate(self, info, username, password, email, profile_data, location_data):
         user = get_user_model().objects.filter(email=email)
-        print(user)
+
         if user:
             raise GraphQLError('There is already a user with that email')
 

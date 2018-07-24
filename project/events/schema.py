@@ -1,4 +1,5 @@
 import graphene
+import datetime
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 
@@ -231,13 +232,16 @@ class UpdateEvent(graphene.Mutation):
 
     class Arguments:
         event_data = EventInput(required=True)
+        location_data = LocationInput(required=True)
         tags = graphene.List(TagInput, required=False)
 
-    def mutate(self, info, event_data, tags = []):
+    def mutate(self, info, event_data, location_data, tags = []):
         user = info.context.user or None
 
         if user.is_anonymous:
             raise GraphQLError('User not logged in!')
+
+        location = add_or_update_location(location_data)
 
         event = Event.objects.get(pk=event_data.id, organizer=user.id)
 
@@ -250,6 +254,7 @@ class UpdateEvent(graphene.Mutation):
         event.end_date=event_data.end_date
         event.end_time=event_data.end_time
         event.organizer=user
+        event.location=location
         event.save()
         return UpdateEvent(event=event)
 
@@ -313,15 +318,10 @@ class Mutation(graphene.ObjectType):
 class Query(graphene.ObjectType):
     events = graphene.List(
         EventType,
-        search=graphene.String(),
-        first=graphene.Int(),
-        skip=graphene.Int(),
-    )
-
-    close_events = graphene.List(
-        EventType,
-        city=graphene.String(),
-        country=graphene.String(),
+        filter_type=graphene.String(),
+        location_id=graphene.Int(),
+        only_future=graphene.Boolean(),
+        proximity=graphene.Int(),
         first=graphene.Int(),
         skip=graphene.Int(),
     )
@@ -403,34 +403,37 @@ class Query(graphene.ObjectType):
 
         return Event.objects.filter(organizer=user)
 
-    def resolve_events(self, info, search=None, first=None, skip=None, **kwargs):
+    def resolve_events(self, info, filter_type='ALL', location_id=None, proximity=10, only_future=True, first=None, skip=None, **kwargs):
+        user = info.context.user or None
+
         qs = Event.objects.all()
 
-        if search:
+        if only_future:
+            qs = qs.filter(start_date__gte=datetime.datetime.now())
+
+        if filter_type == 'ALL':
+            return queryset_skip_next(qs=qs, first=first, skip=skip)
+        elif filter_type == 'NEARBY':
+            if not location_id:
+                raise GraphQLError('Location ID must be supplied')
+            location = Location.objects.get(pk=location_id)
+            nearby_locations = Location.objects.nearby(latitude=location.latitude, longitude=location.longitude, proximity=proximity)
             filter = (
-                Q(title__icontains=search)
+                Q(location__in=nearby_locations)
             )
             qs = qs.filter(filter)
 
-        return queryset_skip_next(qs=qs, first=first, skip=skip)
-
-    def resolve_close_events(
-            self,
-            info,
-            city,
-            country,
-            first=None,
-            skip=None,
-            **kwargs):
-
-        qs = Event.objects.all()
-
-        filter = (
-            Q(location__city__iexact=city) &
-            Q(location__country__iexact=country)
-        )
-        qs = qs.filter(filter)
-
-        return queryset_skip_next(qs=qs, first=first, skip=skip)
+            return queryset_skip_next(qs=qs, first=first, skip=skip)
+        elif filter_type == 'GOING':
+            if not user:
+                raise GraphQLError('Filter not valid! Must be on of ["ALL", "NEARBY", "GOING", "MINE"]')
 
 
+            qs = qs.filter(participants__user__id=user.id, participants__status='GOING')
+            print(qs)
+            return queryset_skip_next(qs=qs, first=first, skip=skip)
+        elif filter_type == 'MINE':
+            # TBI
+            return queryset_skip_next(qs=qs, first=first, skip=skip)
+
+        raise GraphQLError('Filter not valid! Must be on of ["ALL", "NEARBY", "GOING", "MINE"]')
