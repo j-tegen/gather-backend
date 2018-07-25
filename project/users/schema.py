@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 
 import graphene
 from graphql import GraphQLError
@@ -72,27 +73,30 @@ class Register(graphene.Mutation):
 
         if user:
             raise GraphQLError('There is already a user with that email')
+        try:
+            with transaction.atomic():
+                user = get_user_model()(
+                    username=username,
+                    email=email,
+                )
+                user.set_password(password)
+                user.save()
 
-        user = get_user_model()(
-            username=username,
-            email=email,
-        )
-        user.set_password(password)
-        user.save()
+                location = add_or_update_location(location_data)
 
-        location = add_or_update_location(location_data)
-
-        profile = Profile(
-            user=user,
-            location=location,
-            first_name=profile_data.first_name,
-            last_name=profile_data.last_name,
-            description='',
-            birth_date=profile_data.birth_date,
-            gender=profile_data.gender,
-            email=email
-        )
-        profile.save()
+                profile = Profile(
+                    user=user,
+                    location=location,
+                    first_name=profile_data.first_name,
+                    last_name=profile_data.last_name,
+                    description='',
+                    birth_date=profile_data.birth_date,
+                    gender=profile_data.gender,
+                    email=email
+                )
+                profile.save()
+        except Exception as e:
+            raise GraphQLError(e)
 
         return Register(user=user)
 
