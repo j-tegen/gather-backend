@@ -1,5 +1,7 @@
 from .models import Tag, Location
 import requests
+import string
+import random
 from project.settings import GOOGLE_MAPS_API_KEY
 
 def queryset_skip_next(qs, first=None, skip=None):
@@ -90,3 +92,8 @@ def get_google_geo_info(country, city, street):
     location = response['geometry']['location']
 
     return (location['lat'], location['lng'], response['place_id'], response['formatted_address'])
+
+
+
+def id_generator(size=6, chars=string.ascii_uppercase + string.digits):
+    return ''.join(random.choice(chars) for _ in range(size))

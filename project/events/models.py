@@ -105,6 +105,8 @@ class Profile(BaseModel):
         ),
         default="NOANSWER")
     friends = models.ManyToManyField('Friendship', through=Friendship.profiles.through, blank=True)
+    profile_picture = models.TextField(blank=True)
+
 
     @property
     def full_name(self):

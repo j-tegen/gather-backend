@@ -1,13 +1,25 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
-
+import boto3
+import io
 import graphene
+
+from PIL import Image
 from graphql import GraphQLError
+from graphene_file_upload import Upload
 from graphene_django import DjangoObjectType
 from events.models import Profile, Location, Friendship
 from events.enums import Gender, FriendStatus
-from events.utilities import permission_self_or_superuser, add_or_update_location
+from events.utilities import permission_self_or_superuser, add_or_update_location, id_generator
+from project.settings import S3_ACCESS_KEY, S3_SECRET_ACCESS_KEY, S3_PROFILE_PICTURE_BUCKET
 
+
+session = boto3.Session(
+    aws_access_key_id=S3_ACCESS_KEY,
+    aws_secret_access_key=S3_SECRET_ACCESS_KEY
+)
+
+s3 = session.resource('s3')
 
 class UserType(DjangoObjectType):
     class Meta:
@@ -22,21 +34,6 @@ class ProfileType(DjangoObjectType):
     gender = Gender()
     class Meta:
         model = Profile
-        exclude_fields = ['gender']
-
-    def resolve_gender(self, info, **kwargs):
-        return permission_self_or_superuser(
-            parent_user=self.profile_id,
-            field=self.gender,
-            user=info.context.user
-        )
-
-    def resolve_birth_date(self, info, **kwargs):
-        return permission_self_or_superuser(
-            parent_user=self.profile_id,
-            field=self.birth_date,
-            user=info.context.user
-        )
 
 
 class ProfileInput(graphene.InputObjectType):
@@ -50,12 +47,17 @@ class ProfileInput(graphene.InputObjectType):
 
 
 class ProfileLocationInput(graphene.InputObjectType):
-    id = graphene.Int()
+    google_id = graphene.String(required=False)
     city = graphene.String(required=True)
     country = graphene.String(required=True)
     street = graphene.String()
-    longitude = graphene.Float()
-    latitude = graphene.Float()
+
+
+class CropInput(graphene.InputObjectType):
+    x0 = graphene.Int()
+    x1 = graphene.Int()
+    y0 = graphene.Int()
+    y1 = graphene.Int()
 
 
 class Register(graphene.Mutation):
@@ -106,21 +108,11 @@ class UpdateProfile(graphene.Mutation):
 
     class Arguments:
         profile_data = ProfileInput(required=True)
-        location_data = ProfileLocationInput()
 
-    def mutate(self, info, profile_data, location_data=None):
+    def mutate(self, info, profile_data):
         user = info.context.user or None
         if user.is_anonymous:
             raise GraphQLError('User not logged in!')
-
-        if location_data:
-            location = Location.objects.get(pk=location_data.id)
-            location.city=location_data.city
-            location.country=location_data.country
-            location.street=location_data.street
-            location.longitude=location_data.longitude
-            location.latitude=location_data.latitude
-            location.save()
 
         profile = user.profile
         profile.first_name=profile_data.first_name
@@ -128,9 +120,77 @@ class UpdateProfile(graphene.Mutation):
         profile.description=profile_data.description
         profile.birth_date=profile_data.birth_date
         profile.gender=profile_data.gender
+        profile.email=profile_data.email
         profile.save()
 
         return UpdateProfile(profile=profile)
+
+
+class ProfilePicture(graphene.Mutation):
+    class Arguments:
+        profile_id = graphene.Int(required=True)
+        file = Upload(required=True)
+        crop = CropInput(required=True)
+
+
+    profile = graphene.Field(ProfileType)
+
+    def mutate(self, info, profile_id, file, crop, **kwargs):
+        profile = Profile.objects.get(pk=profile_id)
+
+        uploaded_file = info.context.FILES.get(file)
+
+        box = (crop.x0, crop.y0, crop.x1, crop.y1)
+        image = Image.open(uploaded_file)
+        cropped_image = image.crop(box)
+
+        extension = uploaded_file.name.split('.')[1]
+        filename = "profile_picture_{}__{}.{}".format(
+            profile_id,
+            id_generator(),
+            extension
+        )
+
+        in_mem_file = io.BytesIO()
+        cropped_image.save(in_mem_file, format=extension)
+        in_mem_file.seek(0)
+
+        s3.Bucket(S3_PROFILE_PICTURE_BUCKET).put_object(
+            Key=filename,
+            Body=in_mem_file,
+            ACL='public-read')
+
+        old_url = profile.profile_picture
+        if old_url:
+            old_filename = old_url[::-1].split('/')[0][::-1]
+            s3.Object(S3_PROFILE_PICTURE_BUCKET, old_filename).delete()
+
+        profile.profile_picture = "https://s3-eu-west-1.amazonaws.com/{}/{}".format(
+            S3_PROFILE_PICTURE_BUCKET,
+            filename,
+        )
+
+        profile.save()
+        return ProfilePicture(profile=profile)
+
+
+class HandleFriendRequest(graphene.Mutation):
+    friendship = graphene.Field(FriendshipType)
+
+    class Arguments:
+        friendship_id = graphene.Int(required=True)
+        status = FriendStatus(required=True)
+
+    def mutate(self, info, friendship_id, status):
+        user = info.context.user or None
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in!')
+
+        friendship = Friendship.objects.get(pk=friendship_id)
+        friendship.status = status
+        friendship.save()
+
+        return HandleFriendRequest(friendship=friendship)
 
 
 class AddFriend(graphene.Mutation):
@@ -174,7 +234,9 @@ class Mutation(graphene.ObjectType):
     register = Register.Field()
     updateProfile = UpdateProfile.Field()
     addFriend = AddFriend.Field()
+    handleFriendRequest = HandleFriendRequest.Field()
     removeFriend = RemoveFriend.Field()
+    profile_picture = ProfilePicture.Field()
 
 
 class Query(graphene.ObjectType):
@@ -185,7 +247,7 @@ class Query(graphene.ObjectType):
     profile = graphene.Field(ProfileType, id=graphene.Int())
     profiles = graphene.List(ProfileType)
 
-    my_friends = graphene.List(ProfileType)
+    my_friends = graphene.List(FriendshipType)
 
     friendships = graphene.List(FriendshipType)
 
@@ -208,20 +270,15 @@ class Query(graphene.ObjectType):
 
         return user
 
-    def resolve_my_friends(self, info, name_filter=None, **kwargs):
+    def resolve_my_friends(self, info, **kwargs):
         user = info.context.user or None
 
         if user.is_anonymous:
             raise GraphQLError('User not logged in!')
 
-        qs = Profile.objects.filter(friends__profile__id__exact=user.profile.id)
-        if name_filter:
-            filter = (
-                Q(name__icontains=name_filter)
-            )
-            qs = qs.filter(filter)
+        friends = Friendship.objects.filter(profile__id__exact=user.profile.id)
 
-        return qs
+        return friends
 
     def resolve_friendships(self, info, **kwargs):
         user = info.context.user or None

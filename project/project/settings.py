@@ -19,7 +19,6 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/2.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('GATHER_SECRET','')
 
 # SECURITY WARNING: don't run with debug turned on in production!
@@ -138,3 +137,7 @@ AUTHENTICATION_BACKENDS = [
 CORS_ORIGIN_ALLOW_ALL = True
 
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_KEY', '')
+
+S3_ACCESS_KEY = os.getenv('S3_ACCESS_KEY', '')
+S3_SECRET_ACCESS_KEY = os.getenv('S3_SECRET_ACCESS_KEY', '')
+S3_PROFILE_PICTURE_BUCKET = 'gather-pictures'

@@ -1,5 +1,6 @@
 import graphene
 import datetime
+
 from graphene_django import DjangoObjectType
 from graphql import GraphQLError
 
@@ -58,6 +59,7 @@ class EventInput(graphene.InputObjectType):
     min_participants = graphene.Int()
     event_type = graphene.String()
     tags = graphene.List(TagInput)
+
 
 
 class LocationInput(graphene.InputObjectType):
@@ -182,6 +184,29 @@ class AddOrUpdateLocation(graphene.Mutation):
 
         location = add_or_update_location(location_data)
         return AddOrUpdateLocation(location=location)
+
+
+class UpdateProfileLocation(graphene.Mutation):
+    location = graphene.Field(LocationType)
+
+    class Arguments:
+        profile_id = graphene.Int(required=True)
+        location_data = LocationInput(required=True)
+
+    def mutate(self, info, profile_id, location_data):
+        user = info.context.user or None
+        if user.is_anonymous:
+            raise GraphQLError('User not logged in!')
+
+        if user.profile.id != profile_id:
+            raise GraphQLError('You can only edit your own location')
+
+        location = add_or_update_location(location_data)
+        profile = Profile.objects.get(pk=profile_id)
+        profile.location = location
+        profile.save()
+
+        return UpdateProfileLocation(location=location)
 
 
 class CreateEvent(graphene.Mutation):
@@ -313,6 +338,7 @@ class Mutation(graphene.ObjectType):
     create_tag = CreateTag.Field()
     create_post = CreatePost.Field()
     add_or_update_location = AddOrUpdateLocation.Field()
+    update_profile_location = UpdateProfileLocation.Field()
 
 
 class Query(graphene.ObjectType):
