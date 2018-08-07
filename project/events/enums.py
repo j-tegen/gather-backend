@@ -17,3 +17,4 @@ class Gender(graphene.Enum):
 class FriendStatus(graphene.Enum):
     PENDING = "PENDING"
     FRIENDS = "FRIENDS"
+    BLOCKED = "BLOCKED"

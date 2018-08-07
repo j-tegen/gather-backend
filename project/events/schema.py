@@ -345,7 +345,8 @@ class Query(graphene.ObjectType):
     events = graphene.List(
         EventType,
         filter_type=graphene.String(),
-        location_id=graphene.Int(),
+        latitude=graphene.Float(),
+        longitude=graphene.Float(),
         only_future=graphene.Boolean(),
         proximity=graphene.Int(),
         first=graphene.Int(),
@@ -429,7 +430,7 @@ class Query(graphene.ObjectType):
 
         return Event.objects.filter(organizer=user)
 
-    def resolve_events(self, info, filter_type='ALL', location_id=None, proximity=10, only_future=True, first=None, skip=None, **kwargs):
+    def resolve_events(self, info, filter_type='ALL', latitude=None, longitude=None, proximity=10, only_future=True, first=None, skip=None, **kwargs):
         user = info.context.user or None
 
         qs = Event.objects.all()
@@ -440,10 +441,10 @@ class Query(graphene.ObjectType):
         if filter_type == 'ALL':
             return queryset_skip_next(qs=qs, first=first, skip=skip)
         elif filter_type == 'NEARBY':
-            if not location_id:
+            if not latitude or not longitude:
                 raise GraphQLError('Location ID must be supplied')
-            location = Location.objects.get(pk=location_id)
-            nearby_locations = Location.objects.nearby(latitude=location.latitude, longitude=location.longitude, proximity=proximity)
+
+            nearby_locations = Location.objects.nearby(latitude=latitude, longitude=longitude, proximity=proximity)
             filter = (
                 Q(location__in=nearby_locations)
             )

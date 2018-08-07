@@ -1,5 +1,7 @@
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Q, Count
+from functools import reduce
 import boto3
 import io
 import graphene
@@ -10,7 +12,7 @@ from graphene_file_upload import Upload
 from graphene_django import DjangoObjectType
 from events.models import Profile, Location, Friendship
 from events.enums import Gender, FriendStatus
-from events.utilities import permission_self_or_superuser, add_or_update_location, id_generator
+from events.utilities import permission_self_or_superuser, add_or_update_location, id_generator, queryset_skip_next
 from project.settings import S3_ACCESS_KEY, S3_SECRET_ACCESS_KEY, S3_PROFILE_PICTURE_BUCKET
 
 
@@ -204,9 +206,21 @@ class AddFriend(graphene.Mutation):
         if user.is_anonymous:
             raise GraphQLError('User not logged in!')
 
+        friendships = reduce(
+            lambda qs,
+            pk: qs.filter(profiles=pk),
+            [profile_id, user.profile.id],
+            Friendship.objects.all()
+        )
+
+        if friendships:
+            raise GraphQLError('Relationship already exists!')
+
         friend = Friendship(status="PENDING")
-        friend.requested_by = user.id
-        friend.profiles.add(use.profile.id, profile_id)
+        friend.requested_by = user
+        friend.save()
+        friend.profiles.add(user.profile.id, profile_id)
+
 
         return AddFriend(friend=friend)
 
@@ -245,7 +259,11 @@ class Query(graphene.ObjectType):
     users = graphene.List(UserType)
 
     profile = graphene.Field(ProfileType, id=graphene.Int())
-    profiles = graphene.List(ProfileType)
+    profiles = graphene.List(
+        ProfileType,
+        search=graphene.String(),
+        first=graphene.Int(),
+        skip=graphene.Int())
 
     my_friends = graphene.List(FriendshipType)
 
@@ -260,8 +278,27 @@ class Query(graphene.ObjectType):
     def resolve_profile(self, info, id):
         return Profile.objects.filter(pk=id)
 
-    def resolve_profiles(self, info):
-        return Profile.objects.all()
+    # def resolve_profiles(self, info, search=None):
+    #     return Profile.objects.all()
+
+    def resolve_profiles(self, info, search=None, first=None, skip=None, **kwargs):
+        qs = Profile.objects.all()
+
+
+        if search:
+            search_words = search.split(' ')
+            filters = [(
+                Q(first_name__icontains=val) |
+                Q(last_name__icontains=val) |
+                Q(location__city__icontains=val)
+            ) for val in search_words]
+
+            filter = filters.pop()
+            for item in filters:
+                filter |= item
+
+            qs = qs.filter(filter)
+        return queryset_skip_next(qs=qs, first=first, skip=skip)
 
     def resolve_me(self, info):
         user = info.context.user
