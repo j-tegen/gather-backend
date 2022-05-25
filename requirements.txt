@@ -19,7 +19,7 @@ iso8601==0.1.12
 jmespath==0.9.3
 Pillow==5.2.0
 promise==2.1
-PyJWT==1.6.4
+PyJWT==2.4.0
 python-dateutil==2.7.3
 pytz==2018.4
 requests==2.18.4
